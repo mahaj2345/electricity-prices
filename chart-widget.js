@@ -1,176 +1,22 @@
-// Data is published as a static JSON file to GitHub by the Apps Script
-// trigger. raw.githubusercontent.com serves proper CORS headers, so a
-// plain fetch() here is reliable — no JSONP or proxy workarounds needed.
-const dataUrl =
-  "https://raw.githubusercontent.com/mahaj2345/electricity-prices/main/prices.json";
+const labels = [];
+let previousDate = null;
 
-const HOUR_MS = 60 * 60 * 1000;
-const QUARTER_MS = 15 * 60 * 1000;
+prices.forEach((p) => {
+  const dateKey = p.t.slice(0, 10); // YYYY-MM-DD
+  const [year, month, day] = dateKey.split("-");
 
-let allPrices = [];       // raw 15-minute prices, as fetched
-let currentView = "hourly"; // "hourly" | "quarter"
-let chartInstance = null;
-
-async function fetchPrices() {
-  const response = await fetch(dataUrl, { cache: "no-store" });
-  const data = await response.json();
-  if (data.error) {
-    throw new Error(data.error);
-  }
-  // API shape: { t: ["2026-09-02T00:00:00+03:00", ...], price: [0.1234, ...] }
-  // Normalize back into the array-of-objects shape the rest of the code expects.
-  return data.t.map((t, i) => ({ t, price: data.price[i] }));
-}
-
-// Collapse 15-minute prices into hourly averages. Grouping is done on
-// the raw timestamp string prefix (year-month-dayThour) rather than via
-// Date getters, so it's independent of the browser's own timezone.
-function aggregateHourly(prices) {
-  const buckets = new Map();
-  prices.forEach((p) => {
-    const key = p.t.slice(0, 13); // "YYYY-MM-DDTHH"
-    if (!buckets.has(key)) {
-      buckets.set(key, { sum: 0, count: 0, t: p.t });
-    }
-    const b = buckets.get(key);
-    b.sum += p.price;
-    b.count += 1;
+  const timeLabel = new Date(p.t).toLocaleTimeString("fi-FI", {
+    hour: "2-digit",
+    minute: "2-digit",
   });
-  return Array.from(buckets.values())
-    .sort((a, b) => new Date(a.t) - new Date(b.t))
-    .map((b) => ({ t: b.t, price: b.sum / b.count }));
-}
 
-// The "current price" headline always reflects the real 15-min price,
-// regardless of which view (hourly/quarter) the chart is showing.
-function updateCurrentPriceDisplay(rawPrices) {
-  const now = new Date();
-  const current = rawPrices.find((p) => {
-    const t = new Date(p.t);
-    const next = new Date(t.getTime() + QUARTER_MS);
-    return now >= t && now < next;
-  });
-  const el = document.getElementById("currentPrice");
-  if (current) {
-    el.textContent = `Sähkön hinta nyt: ${(current.price * 100).toFixed(2)} snt/kWh`;
-  } else {
-    el.textContent = "Sähkön hinta nyt: ei saatavilla";
-  }
-}
+  const dateLabel = `${Number(day)}.${Number(month)}.${year}`;
 
-function drawChart(prices, bucketMs) {
-  const ctx = document.getElementById("priceChart").getContext("2d");
-  const now = new Date();
-  const labels = prices.map((p) =>
-    new Date(p.t).toLocaleTimeString("fi-FI", {
-      hour: "2-digit",
-      minute: "2-digit",
-    })
+  labels.push(
+    dateKey !== previousDate
+      ? [timeLabel, dateLabel]
+      : timeLabel
   );
-  const values = prices.map((p) => p.price * 100); // €/kWh → snt/kWh
-  const colors = prices.map((p) => {
-    const t = new Date(p.t);
-    const next = new Date(t.getTime() + bucketMs);
-    return now >= t && now < next ? "#ff4d4d" : "#007bff";
-  });
 
-  if (chartInstance) {
-    chartInstance.destroy();
-  }
-
-  chartInstance = new Chart(ctx, {
-    type: "bar",
-    data: {
-      labels,
-      datasets: [
-        {
-          label: "Sähkön hinta (snt/kWh)",
-          data: values,
-          backgroundColor: colors,
-          borderRadius: 3,
-        },
-      ],
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      scales: {
-        x: {
-          title: {
-            display: true,
-            text: "Aika",
-            font: { size: 14 },
-          },
-          ticks: {
-            maxRotation: 90,
-            minRotation: 90,
-            autoSkip: false, // we control which labels show ourselves, below
-            callback: function (value, index) {
-  const d = new Date(prices[index].t);
-  const showTime = d.getMinutes() === 0 && d.getHours() % 3 === 0;
-
-  if (!showTime) {
-    return "";
-  }
-
-  const timeLabel = labels[index];
-
-  // Add the date below the midnight label for each day.
-  if (d.getHours() === 0) {
-    const dateLabel = `${d.getDate()}.${d.getMonth() + 1}.${d.getFullYear()}`;
-    return [timeLabel, dateLabel];
-  }
-
-  return timeLabel;
-},
-          },
-        },
-        y: {
-          title: {
-            display: true,
-            text: "Hinta (snt/kWh)",
-            font: { size: 14 },
-          },
-        },
-      },
-      plugins: {
-        legend: { display: false },
-        tooltip: {
-          callbacks: {
-            label: (ctx) => `${ctx.formattedValue} snt/kWh`,
-          },
-        },
-        title: {
-          display: false,
-          text: `Päivitetty: ${now.toLocaleString("fi-FI")}`,
-          font: { size: 14 },
-        },
-      },
-    },
-  });
-}
-
-function renderChart() {
-  if (currentView === "hourly") {
-    drawChart(aggregateHourly(allPrices), HOUR_MS);
-  } else {
-    drawChart(allPrices, QUARTER_MS);
-  }
-}
-
-document.getElementById("toggleViewBtn").addEventListener("click", () => {
-  currentView = currentView === "hourly" ? "quarter" : "hourly";
-  document.getElementById("toggleViewBtn").textContent =
-    currentView === "hourly" ? "15 min hinnat" : "Tuntihinnat";
-  renderChart();
+  previousDate = dateKey;
 });
-
-fetchPrices()
-  .then((prices) => {
-    allPrices = prices;
-    updateCurrentPriceDisplay(allPrices);
-    renderChart();
-  })
-  .catch((err) => {
-    console.error("Virhe haettaessa dataa:", err);
-  });
