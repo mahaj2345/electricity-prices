@@ -149,6 +149,32 @@ function updateDaySelectorStyles() {
   });
 }
 
+// --- "No data for this day yet" message -------------------------------
+
+// Creates a hidden message element right next to the canvas, shown
+// instead of the chart when the selected day has no data (e.g. viewing
+// "Huomenna" before tomorrow's day-ahead prices have been published).
+function setupNoDataMessage() {
+  const canvas = document.getElementById("priceChart");
+  const msg = document.createElement("div");
+  msg.id = "noDataMessage";
+  msg.textContent = "Päivän hinnat ei vielä saatavilla";
+  msg.style.display = "none";
+  msg.style.textAlign = "center";
+  msg.style.padding = "40px 20px";
+  msg.style.fontSize = "16px";
+  msg.style.color = "#666";
+  canvas.parentNode.insertBefore(msg, canvas.nextSibling);
+}
+
+function showNoDataMessage(show) {
+  const canvas = document.getElementById("priceChart");
+  const msg = document.getElementById("noDataMessage");
+  if (!msg) return;
+  msg.style.display = show ? "block" : "none";
+  canvas.style.display = show ? "none" : "block";
+}
+
 // -----------------------------------------------------------------------
 
 function drawChart(prices, bucketMs) {
@@ -238,6 +264,17 @@ function drawChart(prices, bucketMs) {
 
 function renderChart() {
   const dayPrices = getPricesForSelectedDay();
+
+  if (dayPrices.length === 0) {
+    if (chartInstance) {
+      chartInstance.destroy();
+      chartInstance = null;
+    }
+    showNoDataMessage(true);
+    return;
+  }
+
+  showNoDataMessage(false);
   if (currentView === "hourly") {
     drawChart(aggregateHourly(dayPrices), HOUR_MS);
   } else {
@@ -253,6 +290,7 @@ document.getElementById("toggleViewBtn").addEventListener("click", () => {
 });
 
 setupDaySelector();
+setupNoDataMessage();
 
 fetchPrices()
   .then((prices) => {
