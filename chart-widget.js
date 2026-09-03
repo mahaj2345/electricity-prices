@@ -93,59 +93,26 @@ function getPricesForSelectedDay() {
   return allPrices.filter((p) => p.t.slice(0, 10) === targetKey);
 }
 
-// Builds the Eilen/Tänään/Huomenna button group and inserts it into the
-// page, pinned to the top-left corner. If you already have a container
-// in your HTML you'd rather place this in, swap the insertion target
-// below for that element instead of document.body.
+// Wires up the Eilen/Tänään/Huomenna buttons already present in the
+// page markup (see .day-toggle in index.html) — styling for these
+// lives entirely in CSS (.day-toggle button / .day-toggle button.active)
+// to match the existing .view-toggle look.
 function setupDaySelector() {
-  const wrapper = document.createElement("div");
-  wrapper.id = "daySelector";
-  wrapper.style.position = "fixed";
-  wrapper.style.top = "12px";
-  wrapper.style.left = "12px";
-  wrapper.style.zIndex = "1000";
-  wrapper.style.display = "flex";
-  wrapper.style.gap = "6px";
-  wrapper.style.background = "#fff";
-  wrapper.style.padding = "6px";
-  wrapper.style.borderRadius = "8px";
-  wrapper.style.boxShadow = "0 1px 4px rgba(0,0,0,0.15)";
-
-  const options = [
-    { key: "eilen", label: "Eilen" },
-    { key: "tanaan", label: "Tänään" },
-    { key: "huomenna", label: "Huomenna" },
-  ];
-
-  options.forEach(({ key, label }) => {
-    const btn = document.createElement("button");
-    btn.textContent = label;
-    btn.dataset.dayKey = key;
-    btn.style.border = "1px solid #007bff";
-    btn.style.borderRadius = "6px";
-    btn.style.padding = "6px 12px";
-    btn.style.fontSize = "14px";
-    btn.style.cursor = "pointer";
+  document.querySelectorAll(".day-toggle button").forEach((btn) => {
     btn.addEventListener("click", () => {
-      currentDay = key;
+      currentDay = btn.dataset.dayKey;
       updateDaySelectorStyles();
       renderChart();
     });
-    wrapper.appendChild(btn);
   });
-
-  document.body.insertBefore(wrapper, document.body.firstChild);
   updateDaySelectorStyles();
 }
 
-// Highlights whichever day button is currently active.
+// Highlights whichever day button is currently active via the
+// .active class (styling defined in CSS).
 function updateDaySelectorStyles() {
-  const wrapper = document.getElementById("daySelector");
-  if (!wrapper) return;
-  wrapper.querySelectorAll("button").forEach((btn) => {
-    const active = btn.dataset.dayKey === currentDay;
-    btn.style.background = active ? "#007bff" : "#fff";
-    btn.style.color = active ? "#fff" : "#007bff";
+  document.querySelectorAll(".day-toggle button").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.dayKey === currentDay);
   });
 }
 
@@ -160,10 +127,9 @@ function setupNoDataMessage() {
   msg.id = "noDataMessage";
   msg.textContent = "Päivän hinnat ei vielä saatavilla";
   msg.style.display = "none";
-  msg.style.textAlign = "center";
-  msg.style.padding = "40px 20px";
-  msg.style.fontSize = "16px";
-  msg.style.color = "#666";
+  // Visual styling (padding/color/font-size) now lives in index.html's
+  // <style> block under #noDataMessage — keeps this in sync with the
+  // rest of the page's look without duplicating rules here.
   canvas.parentNode.insertBefore(msg, canvas.nextSibling);
 }
 
