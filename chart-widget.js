@@ -9,38 +9,8 @@ const QUARTER_MS = 15 * 60 * 1000;
 
 let allPrices = [];       // raw 15-minute prices, as fetched
 let currentView = "hourly"; // "hourly" | "quarter"
+let currentDay = "tanaan";  // "eilen" | "tanaan" | "huomenna"
 let chartInstance = null;
-
-// Custom plugin: draws a date string (d.m.yyyy) under the x-axis, once
-// per day boundary. We draw this ourselves rather than relying on
-// Chart.js's built-in multiline tick labels, because multiline ticks
-// don't stack cleanly once the tick labels are rotated 90 degrees —
-// the extra line ends up hidden behind/under the first line instead of
-// appearing below it. Drawing directly onto reserved bottom padding
-// sidesteps that.
-const dateAxisPlugin = {
-  id: "dateAxisPlugin",
-  afterDraw(chart, args, pluginOptions) {
-    const labels = pluginOptions && pluginOptions.labels;
-    if (!labels || !labels.length) return;
-    const { ctx, scales } = chart;
-    const xScale = scales.x;
-    ctx.save();
-    ctx.font = "600 12px sans-serif";
-    ctx.fillStyle = "#444";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "top";
-    // Sit near the very bottom of the canvas, inside the extra layout
-    // padding we reserve below the axis title.
-    const y = chart.height - 18;
-    labels.forEach(({ index, text }) => {
-      const x = xScale.getPixelForValue(index);
-      ctx.fillText(text, x, y);
-    });
-    ctx.restore();
-  },
-};
-Chart.register(dateAxisPlugin);
 
 async function fetchPrices() {
   const response = await fetch(dataUrl, { cache: "no-store" });
@@ -73,7 +43,7 @@ function aggregateHourly(prices) {
 }
 
 // The "current price" headline always reflects the real 15-min price,
-// regardless of which view (hourly/quarter) the chart is showing.
+// regardless of which view (hourly/quarter) or day is being shown.
 function updateCurrentPriceDisplay(rawPrices) {
   const now = new Date();
   const current = rawPrices.find((p) => {
@@ -89,10 +59,97 @@ function updateCurrentPriceDisplay(rawPrices) {
   }
 }
 
-// Format a Date as d.m.yyyy (no leading zeros), Finnish date convention.
-function formatDate(d) {
-  return `${d.getDate()}.${d.getMonth() + 1}.${d.getFullYear()}`;
+// --- Day selection (Eilen / Tänään / Huomenna) -----------------------
+
+// Returns "YYYY-MM-DD" for a given Date, evaluated in Europe/Helsinki
+// time. Using a fixed timezone (rather than the browser's local one)
+// keeps "today" consistent no matter where the page is viewed from,
+// matching the timezone the price data itself is published in.
+function helsinkiDateKey(date) {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Helsinki",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(date);
 }
+
+// Date key for "today + offsetDays" (offsetDays can be negative),
+// still evaluated against Europe/Helsinki's calendar date.
+function dateKeyWithOffset(offsetDays) {
+  const todayKey = helsinkiDateKey(new Date());
+  const [y, m, d] = todayKey.split("-").map(Number);
+  // Noon UTC avoids any DST-boundary edge cases when shifting by a day.
+  const base = new Date(Date.UTC(y, m - 1, d, 12));
+  base.setUTCDate(base.getUTCDate() + offsetDays);
+  return helsinkiDateKey(base);
+}
+
+const DAY_OFFSETS = { eilen: -1, tanaan: 0, huomenna: 1 };
+
+// Filters the full price list down to just the selected day.
+function getPricesForSelectedDay() {
+  const targetKey = dateKeyWithOffset(DAY_OFFSETS[currentDay]);
+  return allPrices.filter((p) => p.t.slice(0, 10) === targetKey);
+}
+
+// Builds the Eilen/Tänään/Huomenna button group and inserts it into the
+// page, pinned to the top-left corner. If you already have a container
+// in your HTML you'd rather place this in, swap the insertion target
+// below for that element instead of document.body.
+function setupDaySelector() {
+  const wrapper = document.createElement("div");
+  wrapper.id = "daySelector";
+  wrapper.style.position = "fixed";
+  wrapper.style.top = "12px";
+  wrapper.style.left = "12px";
+  wrapper.style.zIndex = "1000";
+  wrapper.style.display = "flex";
+  wrapper.style.gap = "6px";
+  wrapper.style.background = "#fff";
+  wrapper.style.padding = "6px";
+  wrapper.style.borderRadius = "8px";
+  wrapper.style.boxShadow = "0 1px 4px rgba(0,0,0,0.15)";
+
+  const options = [
+    { key: "eilen", label: "Eilen" },
+    { key: "tanaan", label: "Tänään" },
+    { key: "huomenna", label: "Huomenna" },
+  ];
+
+  options.forEach(({ key, label }) => {
+    const btn = document.createElement("button");
+    btn.textContent = label;
+    btn.dataset.dayKey = key;
+    btn.style.border = "1px solid #007bff";
+    btn.style.borderRadius = "6px";
+    btn.style.padding = "6px 12px";
+    btn.style.fontSize = "14px";
+    btn.style.cursor = "pointer";
+    btn.addEventListener("click", () => {
+      currentDay = key;
+      updateDaySelectorStyles();
+      renderChart();
+    });
+    wrapper.appendChild(btn);
+  });
+
+  document.body.insertBefore(wrapper, document.body.firstChild);
+  updateDaySelectorStyles();
+}
+
+// Highlights whichever day button is currently active.
+function updateDaySelectorStyles() {
+  const wrapper = document.getElementById("daySelector");
+  if (!wrapper) return;
+  wrapper.querySelectorAll("button").forEach((btn) => {
+    const active = btn.dataset.dayKey === currentDay;
+    btn.style.background = active ? "#007bff" : "#fff";
+    btn.style.color = active ? "#fff" : "#007bff";
+  });
+}
+
+// -----------------------------------------------------------------------
 
 function drawChart(prices, bucketMs) {
   const ctx = document.getElementById("priceChart").getContext("2d");
@@ -108,16 +165,6 @@ function drawChart(prices, bucketMs) {
     const t = new Date(p.t);
     const next = new Date(t.getTime() + bucketMs);
     return now >= t && now < next ? "#ff4d4d" : "#007bff";
-  });
-
-  // Build the list of day-boundary date labels (once per midnight bar)
-  // for the custom dateAxisPlugin to draw below the x-axis.
-  const dateLabels = [];
-  prices.forEach((p, i) => {
-    const d = new Date(p.t);
-    if (d.getHours() === 0 && d.getMinutes() === 0) {
-      dateLabels.push({ index: i, text: formatDate(d) });
-    }
   });
 
   if (chartInstance) {
@@ -140,14 +187,6 @@ function drawChart(prices, bucketMs) {
     options: {
       responsive: true,
       maintainAspectRatio: false,
-      // Reserve extra room at the very bottom of the canvas for the
-      // dateAxisPlugin to draw into, below the rotated tick labels and
-      // the "Aika" axis title.
-      layout: {
-        padding: {
-          bottom: 26,
-        },
-      },
       scales: {
         x: {
           title: {
@@ -192,20 +231,17 @@ function drawChart(prices, bucketMs) {
           text: `Päivitetty: ${now.toLocaleString("fi-FI")}`,
           font: { size: 14 },
         },
-        // Options for our custom dateAxisPlugin (registered above).
-        dateAxisPlugin: {
-          labels: dateLabels,
-        },
       },
     },
   });
 }
 
 function renderChart() {
+  const dayPrices = getPricesForSelectedDay();
   if (currentView === "hourly") {
-    drawChart(aggregateHourly(allPrices), HOUR_MS);
+    drawChart(aggregateHourly(dayPrices), HOUR_MS);
   } else {
-    drawChart(allPrices, QUARTER_MS);
+    drawChart(dayPrices, QUARTER_MS);
   }
 }
 
@@ -215,6 +251,8 @@ document.getElementById("toggleViewBtn").addEventListener("click", () => {
     currentView === "hourly" ? "15 min hinnat" : "Tuntihinnat";
   renderChart();
 });
+
+setupDaySelector();
 
 fetchPrices()
   .then((prices) => {
