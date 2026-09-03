@@ -106,16 +106,23 @@ function drawChart(prices, bucketMs) {
             minRotation: 90,
             autoSkip: false, // we control which labels show ourselves, below
             callback: function (value, index) {
-              // Don't rely on the formatted label string (Finnish locale
-              // uses "01.00" with a period, not "01:00"), check the
-              // underlying timestamp directly instead. Only label every
-              // 3rd full hour so labels don't overlap across 2-3 days
-              // of bars.
-              const d = new Date(prices[index].t);
-              return d.getMinutes() === 0 && d.getHours() % 3 === 0
-                ? labels[index]
-                : "";
-            },
+  const d = new Date(prices[index].t);
+  const showTime = d.getMinutes() === 0 && d.getHours() % 3 === 0;
+
+  if (!showTime) {
+    return "";
+  }
+
+  const timeLabel = labels[index];
+
+  // Add the date below the midnight label for each day.
+  if (d.getHours() === 0) {
+    const dateLabel = `${d.getDate()}.${d.getMonth() + 1}.${d.getFullYear()}`;
+    return [timeLabel, dateLabel];
+  }
+
+  return timeLabel;
+},
           },
         },
         y: {
