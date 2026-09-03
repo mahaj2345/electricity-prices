@@ -11,6 +11,37 @@ let allPrices = [];       // raw 15-minute prices, as fetched
 let currentView = "hourly"; // "hourly" | "quarter"
 let chartInstance = null;
 
+// Custom plugin: draws a date string (d.m.yyyy) under the x-axis, once
+// per day boundary. We draw this ourselves rather than relying on
+// Chart.js's built-in multiline tick labels, because multiline ticks
+// don't stack cleanly once the tick labels are rotated 90 degrees —
+// the extra line ends up hidden behind/under the first line instead of
+// appearing below it. Drawing directly onto reserved bottom padding
+// sidesteps that.
+const dateAxisPlugin = {
+  id: "dateAxisPlugin",
+  afterDraw(chart, args, pluginOptions) {
+    const labels = pluginOptions && pluginOptions.labels;
+    if (!labels || !labels.length) return;
+    const { ctx, scales } = chart;
+    const xScale = scales.x;
+    ctx.save();
+    ctx.font = "600 12px sans-serif";
+    ctx.fillStyle = "#444";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "top";
+    // Sit near the very bottom of the canvas, inside the extra layout
+    // padding we reserve below the axis title.
+    const y = chart.height - 18;
+    labels.forEach(({ index, text }) => {
+      const x = xScale.getPixelForValue(index);
+      ctx.fillText(text, x, y);
+    });
+    ctx.restore();
+  },
+};
+Chart.register(dateAxisPlugin);
+
 async function fetchPrices() {
   const response = await fetch(dataUrl, { cache: "no-store" });
   const data = await response.json();
@@ -79,6 +110,16 @@ function drawChart(prices, bucketMs) {
     return now >= t && now < next ? "#ff4d4d" : "#007bff";
   });
 
+  // Build the list of day-boundary date labels (once per midnight bar)
+  // for the custom dateAxisPlugin to draw below the x-axis.
+  const dateLabels = [];
+  prices.forEach((p, i) => {
+    const d = new Date(p.t);
+    if (d.getHours() === 0 && d.getMinutes() === 0) {
+      dateLabels.push({ index: i, text: formatDate(d) });
+    }
+  });
+
   if (chartInstance) {
     chartInstance.destroy();
   }
@@ -99,6 +140,14 @@ function drawChart(prices, bucketMs) {
     options: {
       responsive: true,
       maintainAspectRatio: false,
+      // Reserve extra room at the very bottom of the canvas for the
+      // dateAxisPlugin to draw into, below the rotated tick labels and
+      // the "Aika" axis title.
+      layout: {
+        padding: {
+          bottom: 26,
+        },
+      },
       scales: {
         x: {
           title: {
@@ -117,16 +166,9 @@ function drawChart(prices, bucketMs) {
               // 3rd full hour so labels don't overlap across 2-3 days
               // of bars.
               const d = new Date(prices[index].t);
-              if (d.getMinutes() !== 0 || d.getHours() % 3 !== 0) {
-                return "";
-              }
-              // At the midnight tick, add the date as a second line
-              // below the time — this is the "secondary label" that
-              // marks where each new day starts.
-              if (d.getHours() === 0) {
-                return [labels[index], formatDate(d)];
-              }
-              return labels[index];
+              return d.getMinutes() === 0 && d.getHours() % 3 === 0
+                ? labels[index]
+                : "";
             },
           },
         },
@@ -149,6 +191,10 @@ function drawChart(prices, bucketMs) {
           display: false,
           text: `Päivitetty: ${now.toLocaleString("fi-FI")}`,
           font: { size: 14 },
+        },
+        // Options for our custom dateAxisPlugin (registered above).
+        dateAxisPlugin: {
+          labels: dateLabels,
         },
       },
     },
