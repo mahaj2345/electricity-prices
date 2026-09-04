@@ -87,6 +87,14 @@ function dateKeyWithOffset(offsetDays) {
 
 const DAY_OFFSETS = { eilen: -1, tanaan: 0, huomenna: 1 };
 
+// A full day of 15-minute data has ~96 points (92/100 around DST
+// changes). Before tomorrow's day-ahead prices are published (usually
+// ~14:00), the feed still contains a single 00:00 entry for "tomorrow"
+// — that's just the boundary marker at the end of today's data, not a
+// real published price for that day. Treat anything at or below this
+// threshold as "not published yet" rather than a real day of prices.
+const MIN_POINTS_FOR_PUBLISHED_DAY = 4;
+
 // Filters the full price list down to just the selected day.
 function getPricesForSelectedDay() {
   const targetKey = dateKeyWithOffset(DAY_OFFSETS[currentDay]);
@@ -231,7 +239,7 @@ function drawChart(prices, bucketMs) {
 function renderChart() {
   const dayPrices = getPricesForSelectedDay();
 
-  if (dayPrices.length === 0) {
+  if (dayPrices.length <= MIN_POINTS_FOR_PUBLISHED_DAY) {
     if (chartInstance) {
       chartInstance.destroy();
       chartInstance = null;
