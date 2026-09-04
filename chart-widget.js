@@ -9,6 +9,7 @@ const QUARTER_MS = 15 * 60 * 1000;
 
 let allPrices = [];       // raw 15-minute prices, as fetched
 let currentView = "hourly"; // "hourly" | "quarter"
+let currentDay = "tanaan";  // "eilen" | "tanaan" | "huomenna"
 let chartInstance = null;
 
 async function fetchPrices() {
@@ -42,7 +43,7 @@ function aggregateHourly(prices) {
 }
 
 // The "current price" headline always reflects the real 15-min price,
-// regardless of which view (hourly/quarter) the chart is showing.
+// regardless of which view (hourly/quarter) or day is being shown.
 function updateCurrentPriceDisplay(rawPrices) {
   const now = new Date();
   const current = rawPrices.find((p) => {
@@ -57,6 +58,98 @@ function updateCurrentPriceDisplay(rawPrices) {
     el.textContent = "Sähkön hinta nyt: ei saatavilla";
   }
 }
+
+// --- Day selection (Eilen / Tänään / Huomenna) -----------------------
+
+// Returns "YYYY-MM-DD" for a given Date, evaluated in Europe/Helsinki
+// time. Using a fixed timezone (rather than the browser's local one)
+// keeps "today" consistent no matter where the page is viewed from,
+// matching the timezone the price data itself is published in.
+function helsinkiDateKey(date) {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Helsinki",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(date);
+}
+
+// Date key for "today + offsetDays" (offsetDays can be negative),
+// still evaluated against Europe/Helsinki's calendar date.
+function dateKeyWithOffset(offsetDays) {
+  const todayKey = helsinkiDateKey(new Date());
+  const [y, m, d] = todayKey.split("-").map(Number);
+  // Noon UTC avoids any DST-boundary edge cases when shifting by a day.
+  const base = new Date(Date.UTC(y, m - 1, d, 12));
+  base.setUTCDate(base.getUTCDate() + offsetDays);
+  return helsinkiDateKey(base);
+}
+
+const DAY_OFFSETS = { eilen: -1, tanaan: 0, huomenna: 1 };
+
+// A full day of 15-minute data has ~96 points (92/100 around DST
+// changes). Before tomorrow's day-ahead prices are published (usually
+// ~14:00), the feed still contains a single 00:00 entry for "tomorrow"
+// — that's just the boundary marker at the end of today's data, not a
+// real published price for that day. Treat anything at or below this
+// threshold as "not published yet" rather than a real day of prices.
+const MIN_POINTS_FOR_PUBLISHED_DAY = 4;
+
+// Filters the full price list down to just the selected day.
+function getPricesForSelectedDay() {
+  const targetKey = dateKeyWithOffset(DAY_OFFSETS[currentDay]);
+  return allPrices.filter((p) => p.t.slice(0, 10) === targetKey);
+}
+
+// Wires up the Eilen/Tänään/Huomenna buttons already present in the
+// page markup (see .day-toggle in index.html) — styling for these
+// lives entirely in CSS (.day-toggle button / .day-toggle button.active)
+// to match the existing .view-toggle look.
+function setupDaySelector() {
+  document.querySelectorAll(".day-toggle button").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      currentDay = btn.dataset.dayKey;
+      updateDaySelectorStyles();
+      renderChart();
+    });
+  });
+  updateDaySelectorStyles();
+}
+
+// Highlights whichever day button is currently active via the
+// .active class (styling defined in CSS).
+function updateDaySelectorStyles() {
+  document.querySelectorAll(".day-toggle button").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.dayKey === currentDay);
+  });
+}
+
+// --- "No data for this day yet" message -------------------------------
+
+// Creates a hidden message element right next to the canvas, shown
+// instead of the chart when the selected day has no data (e.g. viewing
+// "Huomenna" before tomorrow's day-ahead prices have been published).
+function setupNoDataMessage() {
+  const canvas = document.getElementById("priceChart");
+  const msg = document.createElement("div");
+  msg.id = "noDataMessage";
+  msg.textContent = "Seuraavan päivän hinnat julkaistaan Nord Pool sähköpörssissä noin klo 14:00. Hinnat päivittyvät sivustolle julkaisun jälkeen.";
+  msg.style.display = "none";
+  // Visual styling (padding/color/font-size) now lives in index.html's
+  // <style> block under #noDataMessage — keeps this in sync with the
+  // rest of the page's look without duplicating rules here.
+  canvas.parentNode.insertBefore(msg, canvas.nextSibling);
+}
+
+function showNoDataMessage(show) {
+  const canvas = document.getElementById("priceChart");
+  const msg = document.getElementById("noDataMessage");
+  if (!msg) return;
+  msg.style.display = show ? "block" : "none";
+  canvas.style.display = show ? "none" : "block";
+}
+
+// -----------------------------------------------------------------------
 
 function drawChart(prices, bucketMs) {
   const ctx = document.getElementById("priceChart").getContext("2d");
@@ -144,10 +237,22 @@ function drawChart(prices, bucketMs) {
 }
 
 function renderChart() {
+  const dayPrices = getPricesForSelectedDay();
+
+  if (dayPrices.length <= MIN_POINTS_FOR_PUBLISHED_DAY) {
+    if (chartInstance) {
+      chartInstance.destroy();
+      chartInstance = null;
+    }
+    showNoDataMessage(true);
+    return;
+  }
+
+  showNoDataMessage(false);
   if (currentView === "hourly") {
-    drawChart(aggregateHourly(allPrices), HOUR_MS);
+    drawChart(aggregateHourly(dayPrices), HOUR_MS);
   } else {
-    drawChart(allPrices, QUARTER_MS);
+    drawChart(dayPrices, QUARTER_MS);
   }
 }
 
@@ -157,6 +262,9 @@ document.getElementById("toggleViewBtn").addEventListener("click", () => {
     currentView === "hourly" ? "15 min hinnat" : "Tuntihinnat";
   renderChart();
 });
+
+setupDaySelector();
+setupNoDataMessage();
 
 fetchPrices()
   .then((prices) => {
