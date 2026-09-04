@@ -1,0 +1,92 @@
+<meta charset="UTF-8">
+  <title>Sähkön hinta tänään</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 40px auto;
+      padding: 20px;
+      text-align: center;
+    }
+    .chart-container {
+      max-width: 1200px;
+      margin: 0 auto;
+      position: relative;
+      height: 400px;
+    }
+    canvas {
+      width: 100% !important;
+      height: 100% !important;
+      margin-top: 20px;
+    }
+    #currentPrice {
+      font-size: 1.5em;
+      font-weight: bold;
+      margin-bottom: 10px;
+    }
+    .view-toggle {
+      position: absolute;
+      top: 0;
+      right: 0;
+      z-index: 10;
+    }
+    .view-toggle button {
+      font-family: Arial, sans-serif;
+      font-size: 0.85em;
+      padding: 6px 12px;
+      border: 1px solid #007bff;
+      background: #fff;
+      color: #007bff;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    .view-toggle button:hover {
+      background: #007bff;
+      color: #fff;
+    }
+    .day-toggle {
+      position: absolute;
+      top: 0;
+      left: 0;
+      z-index: 10;
+      display: flex;
+      gap: 4px;
+    }
+    .day-toggle button {
+      font-family: Arial, sans-serif;
+      font-size: 0.85em;
+      padding: 6px 12px;
+      border: 1px solid #007bff;
+      background: #fff;
+      color: #007bff;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    .day-toggle button:hover {
+      background: #007bff;
+      color: #fff;
+    }
+    .day-toggle button.active {
+      background: #007bff;
+      color: #fff;
+    }
+    #noDataMessage {
+      text-align: center;
+      padding: 40px 20px;
+      font-size: 1em;
+      color: #666;
+    }
+  </style>
+  <h2 id="currentPrice">Sähkön hinta nyt: lataa...</h2>
+  <div class="chart-container">
+    <div class="day-toggle">
+      <button id="dayEilen" data-day-key="eilen">Eilen</button>
+      <button id="dayTanaan" data-day-key="tanaan">Tänään</button>
+      <button id="dayHuomenna" data-day-key="huomenna">Huomenna</button>
+    </div>
+    <div class="view-toggle">
+      <button id="toggleViewBtn">15 min hinnat</button>
+    </div>
+    <canvas id="priceChart"></canvas>
+  </div>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="chart-widget.js"></script>
