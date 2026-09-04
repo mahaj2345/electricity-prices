@@ -133,7 +133,7 @@ function setupNoDataMessage() {
   const canvas = document.getElementById("priceChart");
   const msg = document.createElement("div");
   msg.id = "noDataMessage";
-  msg.textContent = "Seuraavan päivän hinnat julkaistaan Nord Pool sähköpörssissä noin klo 14:00. Hinnat päivittyvät sivustolle julkaisun jälkeen.";
+  msg.textContent = "Seuraavan päivän hinnat julkaistaan Nord Pool -sähköpörssissä noin klo 14:00. Hinnat päivittyvät sivustolle julkaisun jälkeen.";
   msg.style.display = "none";
   // Visual styling (padding/color/font-size) now lives in index.html's
   // <style> block under #noDataMessage — keeps this in sync with the
