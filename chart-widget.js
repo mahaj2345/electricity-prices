@@ -31,7 +31,17 @@ function aggregateHourly(prices) {
   prices.forEach((p) => {
     const key = p.t.slice(0, 13); // "YYYY-MM-DDTHH"
     if (!buckets.has(key)) {
-      buckets.set(key, { sum: 0, count: 0, t: p.t });
+      // Build the bucket's timestamp directly from the hour key itself
+      // (always exactly HH:00:00), rather than reusing whichever
+      // 15-minute sample happened to be first in the array for this
+      // hour. The widened fetch window can return data as several
+      // TimeSeries blocks (per day / per revision) that aren't always
+      // in strict chronological order within the hour, so "the first
+      // sample seen" isn't reliably the :00 one — that was silently
+      // dropping the tick label for whichever hour got an out-of-order
+      // sample first (its minutes weren't exactly 0).
+      const offset = p.t.slice(19); // e.g. "+03:00"
+      buckets.set(key, { sum: 0, count: 0, t: `${key}:00:00${offset}` });
     }
     const b = buckets.get(key);
     b.sum += p.price;
@@ -53,7 +63,11 @@ function updateCurrentPriceDisplay(rawPrices) {
   });
   const el = document.getElementById("currentPrice");
   if (current) {
-    el.textContent = `Sähkön hinta nyt: ${(current.price * 100).toFixed(2)} snt/kWh`;
+    const formatted = (current.price * 100).toLocaleString("fi-FI", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+    el.textContent = `Sähkön hinta nyt: ${formatted} snt/kWh`;
   } else {
     el.textContent = "Sähkön hinta nyt: ei saatavilla";
   }
@@ -133,7 +147,7 @@ function setupNoDataMessage() {
   const canvas = document.getElementById("priceChart");
   const msg = document.createElement("div");
   msg.id = "noDataMessage";
-  msg.textContent = "Seuraavan päivän hinnat julkaistaan Nord Pool sähköpörssissä noin klo 14:00. Hinnat päivittyvät sivustolle julkaisun jälkeen.";
+  msg.textContent = "Päivän hinnat ei vielä saatavilla";
   msg.style.display = "none";
   // Visual styling (padding/color/font-size) now lives in index.html's
   // <style> block under #noDataMessage — keeps this in sync with the
@@ -154,12 +168,13 @@ function showNoDataMessage(show) {
 function drawChart(prices, bucketMs) {
   const ctx = document.getElementById("priceChart").getContext("2d");
   const now = new Date();
-  const labels = prices.map((p) =>
-    new Date(p.t).toLocaleTimeString("fi-FI", {
-      hour: "2-digit",
-      minute: "2-digit",
-    })
-  );
+  // Slice "HH:MM" straight out of the ISO timestamp string rather than
+  // going through Date + toLocaleTimeString. This gives a plain
+  // colon-separated 24h time ("15:00" not "15.00", which is what
+  // Finnish toLocaleTimeString produces), and — as a bonus — it's
+  // immune to the viewer's own browser timezone, since the string
+  // already encodes the correct Europe/Helsinki wall-clock time.
+  const labels = prices.map((p) => p.t.slice(11, 16));
   const values = prices.map((p) => p.price * 100); // €/kWh → snt/kWh
   const colors = prices.map((p) => {
     const t = new Date(p.t);
@@ -187,6 +202,10 @@ function drawChart(prices, bucketMs) {
     options: {
       responsive: true,
       maintainAspectRatio: false,
+      // Makes Chart.js's own internal number formatting (y-axis ticks,
+      // tooltip values via ctx.formattedValue) use Finnish conventions
+      // — a comma decimal separator instead of a period.
+      locale: "fi-FI",
       scales: {
         x: {
           title: {
@@ -199,15 +218,16 @@ function drawChart(prices, bucketMs) {
             minRotation: 90,
             autoSkip: false, // we control which labels show ourselves, below
             callback: function (value, index) {
-              // Don't rely on the formatted label string (Finnish locale
-              // uses "01.00" with a period, not "01:00"), check the
-              // underlying timestamp directly instead. Only label every
-              // 3rd full hour so labels don't overlap across 2-3 days
-              // of bars.
-              const d = new Date(prices[index].t);
-              return d.getMinutes() === 0 && d.getHours() % 3 === 0
-                ? labels[index]
-                : "";
+              // Read the hour/minute straight out of the timestamp
+              // string (already Helsinki wall-clock time), not via
+              // Date.getHours()/getMinutes() — those reflect the
+              // *viewer's own browser timezone*, which would silently
+              // shift which hours get labeled for anyone not in
+              // Finland. Only label every 3rd full hour so labels
+              // don't overlap across 2-3 days of bars.
+              const hour = parseInt(prices[index].t.slice(11, 13), 10);
+              const minute = prices[index].t.slice(14, 16);
+              return minute === "00" && hour % 3 === 0 ? labels[index] : "";
             },
           },
         },
