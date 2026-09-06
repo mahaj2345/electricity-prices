@@ -31,7 +31,17 @@ function aggregateHourly(prices) {
   prices.forEach((p) => {
     const key = p.t.slice(0, 13); // "YYYY-MM-DDTHH"
     if (!buckets.has(key)) {
-      buckets.set(key, { sum: 0, count: 0, t: p.t });
+      // Build the bucket's timestamp directly from the hour key itself
+      // (always exactly HH:00:00), rather than reusing whichever
+      // 15-minute sample happened to be first in the array for this
+      // hour. The widened fetch window can return data as several
+      // TimeSeries blocks (per day / per revision) that aren't always
+      // in strict chronological order within the hour, so "the first
+      // sample seen" isn't reliably the :00 one — that was silently
+      // dropping the tick label for whichever hour got an out-of-order
+      // sample first (its minutes weren't exactly 0).
+      const offset = p.t.slice(19); // e.g. "+03:00"
+      buckets.set(key, { sum: 0, count: 0, t: `${key}:00:00${offset}` });
     }
     const b = buckets.get(key);
     b.sum += p.price;
