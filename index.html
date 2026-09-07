@@ -23,12 +23,27 @@
       font-weight: bold;
       margin-bottom: 10px;
     }
-    .view-toggle {
-      position: absolute;
-      top: 0;
-      right: 0;
-      z-index: 10;
+    /* Both toggle groups now sit in normal flow (no more position:
+       absolute), inside a shared flex row that wraps. This keeps them
+       aligned with each other on wide screens, and lets them wrap onto
+       their own line cleanly on narrow ones instead of overlapping. */
+    .controls {
+      max-width: 1200px;
+      margin: 0 auto;
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 8px;
     }
+    .day-toggle,
+    .view-toggle {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+    }
+    .day-toggle button,
     .view-toggle button {
       font-family: Arial, sans-serif;
       font-size: 0.85em;
@@ -38,36 +53,26 @@
       color: #007bff;
       border-radius: 4px;
       cursor: pointer;
+      white-space: nowrap;
     }
+    .day-toggle button:hover,
     .view-toggle button:hover {
-      background: #007bff;
-      color: #fff;
-    }
-    .day-toggle {
-      position: absolute;
-      top: 0;
-      left: 0;
-      z-index: 10;
-      display: flex;
-      gap: 4px;
-    }
-    .day-toggle button {
-      font-family: Arial, sans-serif;
-      font-size: 0.85em;
-      padding: 6px 12px;
-      border: 1px solid #007bff;
-      background: #fff;
-      color: #007bff;
-      border-radius: 4px;
-      cursor: pointer;
-    }
-    .day-toggle button:hover {
       background: #007bff;
       color: #fff;
     }
     .day-toggle button.active {
       background: #007bff;
       color: #fff;
+    }
+    /* Shrink buttons on narrow screens so both groups have a better
+       chance of fitting on one line, and look proportionate if they
+       still wrap onto two. */
+    @media (max-width: 480px) {
+      .day-toggle button,
+      .view-toggle button {
+        font-size: 0.75em;
+        padding: 5px 8px;
+      }
     }
     #noDataMessage {
       text-align: center;
@@ -77,7 +82,7 @@
     }
   </style>
   <h2 id="currentPrice">Sähkön hinta nyt: lataa...</h2>
-  <div class="chart-container">
+  <div class="controls">
     <div class="day-toggle">
       <button id="dayEilen" data-day-key="eilen">Eilen</button>
       <button id="dayTanaan" data-day-key="tanaan">Tänään</button>
@@ -86,7 +91,12 @@
     <div class="view-toggle">
       <button id="toggleViewBtn">15 min hinnat</button>
     </div>
+  </div>
+  <div class="chart-container">
     <canvas id="priceChart"></canvas>
   </div>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <!-- 
+  <script src="https://cdn.jsdelivr.net/gh/mahaj2345/electricity-prices@main/chart-widget.js"></script>
+  --> 
   <script src="chart-widget.js"></script>
