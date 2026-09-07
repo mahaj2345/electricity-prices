@@ -26,6 +26,10 @@ async function fetchPrices() {
 // Collapse 15-minute prices into hourly averages. Grouping is done on
 // the raw timestamp string prefix (year-month-dayThour) rather than via
 // Date getters, so it's independent of the browser's own timezone.
+// Missing quarters (price === null, from fillDayGaps) are excluded from
+// the average; if an entire hour has no real data at all, the bucket's
+// price is null too, so the bar is empty rather than showing a
+// misleading average of zero real points.
 function aggregateHourly(prices) {
   const buckets = new Map();
   prices.forEach((p) => {
@@ -44,12 +48,14 @@ function aggregateHourly(prices) {
       buckets.set(key, { sum: 0, count: 0, t: `${key}:00:00${offset}` });
     }
     const b = buckets.get(key);
-    b.sum += p.price;
-    b.count += 1;
+    if (p.price !== null && p.price !== undefined) {
+      b.sum += p.price;
+      b.count += 1;
+    }
   });
   return Array.from(buckets.values())
     .sort((a, b) => new Date(a.t) - new Date(b.t))
-    .map((b) => ({ t: b.t, price: b.sum / b.count }));
+    .map((b) => ({ t: b.t, price: b.count > 0 ? b.sum / b.count : null }));
 }
 
 // The "current price" headline always reflects the real 15-min price,
@@ -109,10 +115,45 @@ const DAY_OFFSETS = { eilen: -1, tanaan: 0, huomenna: 1 };
 // threshold as "not published yet" rather than a real day of prices.
 const MIN_POINTS_FOR_PUBLISHED_DAY = 4;
 
-// Filters the full price list down to just the selected day.
+// Builds every expected 15-minute slot for a given calendar day
+// ("YYYY-MM-DD"), filling in `price: null` for any slot missing from
+// the fetched data. Without this, a missing quarter-hour (confirmed to
+// happen occasionally on ENTSO-E's side) just means one fewer array
+// entry — which silently compresses the chart, jumping straight to the
+// next available time and closing up the gap instead of showing it.
+// With every slot always present, Chart.js draws no bar for a null
+// value but keeps its correct x-axis position, so a genuine gap in the
+// data reads as an empty gap in the chart rather than a shifted one.
+function fillDayGaps(dayPrices, dateKey) {
+  const priceByTimestamp = new Map(dayPrices.map((p) => [p.t, p.price]));
+  // Reuse whatever UTC offset the fetched data already has (it's
+  // whatever Apps Script formatted for Europe/Helsinki, correctly
+  // handling DST) — falls back to +02:00 in the unlikely case the
+  // whole day is missing and there's nothing to read it from.
+  const offset = dayPrices.length > 0 ? dayPrices[0].t.slice(19) : "+02:00";
+
+  const filled = [];
+  for (let hour = 0; hour < 24; hour++) {
+    for (let minute = 0; minute < 60; minute += 15) {
+      const hh = String(hour).padStart(2, "0");
+      const mm = String(minute).padStart(2, "0");
+      const t = `${dateKey}T${hh}:${mm}:00${offset}`;
+      filled.push({
+        t,
+        price: priceByTimestamp.has(t) ? priceByTimestamp.get(t) : null,
+      });
+    }
+  }
+  return filled;
+}
+
+// Filters the full price list down to just the selected day, then fills
+// in any missing 15-minute slots so gaps render as empty rather than
+// being skipped over.
 function getPricesForSelectedDay() {
   const targetKey = dateKeyWithOffset(DAY_OFFSETS[currentDay]);
-  return allPrices.filter((p) => p.t.slice(0, 10) === targetKey);
+  const dayPrices = allPrices.filter((p) => p.t.slice(0, 10) === targetKey);
+  return fillDayGaps(dayPrices, targetKey);
 }
 
 // Wires up the Eilen/Tänään/Huomenna buttons already present in the
@@ -147,7 +188,7 @@ function setupNoDataMessage() {
   const canvas = document.getElementById("priceChart");
   const msg = document.createElement("div");
   msg.id = "noDataMessage";
-  msg.textContent = "Päivän hinnat ei vielä saatavilla";
+  msg.textContent = "Seuraavan päivän hinnat julkaistaan Nord Pool -sähköpörssissä noin klo 14:00. Hinnat päivittyvät sivustolle julkaisun jälkeen.";
   msg.style.display = "none";
   // Visual styling (padding/color/font-size) now lives in index.html's
   // <style> block under #noDataMessage — keeps this in sync with the
@@ -175,8 +216,13 @@ function drawChart(prices, bucketMs) {
   // immune to the viewer's own browser timezone, since the string
   // already encodes the correct Europe/Helsinki wall-clock time.
   const labels = prices.map((p) => p.t.slice(11, 16));
-  const values = prices.map((p) => p.price * 100); // €/kWh → snt/kWh
+  // Keep null as null (not 0) for missing slots — Chart.js draws no bar
+  // for a null value but still reserves its x-axis position, so a gap
+  // in the data shows as an empty gap in the chart rather than a real
+  // zero-price bar (which would misleadingly suggest free electricity).
+  const values = prices.map((p) => (p.price !== null ? p.price * 100 : null));
   const colors = prices.map((p) => {
+    if (p.price === null) return "#007bff"; // unused when value is null, but keep arrays aligned
     const t = new Date(p.t);
     const next = new Date(t.getTime() + bucketMs);
     return now >= t && now < next ? "#ff4d4d" : "#007bff";
@@ -259,7 +305,12 @@ function drawChart(prices, bucketMs) {
 function renderChart() {
   const dayPrices = getPricesForSelectedDay();
 
-  if (dayPrices.length <= MIN_POINTS_FOR_PUBLISHED_DAY) {
+  // dayPrices is now always a full 96-slot grid (see fillDayGaps), so
+  // checking its length no longer tells us whether real data exists —
+  // count actual (non-null) values instead.
+  const publishedCount = dayPrices.filter((p) => p.price !== null).length;
+
+  if (publishedCount <= MIN_POINTS_FOR_PUBLISHED_DAY) {
     if (chartInstance) {
       chartInstance.destroy();
       chartInstance = null;
