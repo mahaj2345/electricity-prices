@@ -156,6 +156,45 @@ function getPricesForSelectedDay() {
   return fillDayGaps(dayPrices, targetKey);
 }
 
+// Carries the most recent known price forward into any null (missing)
+// slot, for DISPLAY purposes only. This is deliberately a separate
+// step from getPricesForSelectedDay() / fillDayGaps() above, applied
+// only right before drawing — the "is this day published at all"
+// check in renderChart must run on the raw (null-containing) data
+// first, otherwise carrying forward real prices from an earlier day
+// could make "Huomenna" look published before it actually is.
+//
+// Seeds the initial carry value from the full multi-day allPrices
+// list (not just this day), so a gap at the very start of the day
+// still carries forward from the end of the previous day rather than
+// staying empty just because nothing earlier in THIS day's slice was
+// available yet.
+function forwardFillGaps(filledDayPrices) {
+  if (filledDayPrices.length === 0) return filledDayPrices;
+
+  let lastKnown = null;
+  const dayStartTime = new Date(filledDayPrices[0].t).getTime();
+  for (const p of allPrices) {
+    const t = new Date(p.t).getTime();
+    if (t >= dayStartTime) break; // allPrices is chronological; stop once we reach this day
+    if (p.price !== null && p.price !== undefined) {
+      lastKnown = p.price;
+    }
+  }
+
+  return filledDayPrices.map((p) => {
+    if (p.price !== null && p.price !== undefined) {
+      lastKnown = p.price;
+      return p;
+    }
+    // Carry the previous known price forward. If there's genuinely no
+    // prior price anywhere in the dataset (e.g. right at the very
+    // start of everything we've ever fetched), this stays null and
+    // the bar remains empty, same as before.
+    return lastKnown !== null ? { t: p.t, price: lastKnown } : p;
+  });
+}
+
 // Wires up the Eilen/Tänään/Huomenna buttons already present in the
 // page markup (see .day-toggle in index.html) — styling for these
 // lives entirely in CSS (.day-toggle button / .day-toggle button.active)
@@ -188,7 +227,7 @@ function setupNoDataMessage() {
   const canvas = document.getElementById("priceChart");
   const msg = document.createElement("div");
   msg.id = "noDataMessage";
-  msg.textContent = "Seuraavan päivän hinnat julkaistaan Nord Pool -sähköpörssissä noin klo 14:00. Hinnat päivittyvät sivustolle julkaisun jälkeen.";
+  msg.textContent = "Päivän hinnat ei vielä saatavilla";
   msg.style.display = "none";
   // Visual styling (padding/color/font-size) now lives in index.html's
   // <style> block under #noDataMessage — keeps this in sync with the
@@ -320,10 +359,13 @@ function renderChart() {
   }
 
   showNoDataMessage(false);
+  // Only NOW, after confirming the day is genuinely published, do we
+  // apply the carry-forward fill for any remaining gaps within it.
+  const displayPrices = forwardFillGaps(dayPrices);
   if (currentView === "hourly") {
-    drawChart(aggregateHourly(dayPrices), HOUR_MS);
+    drawChart(aggregateHourly(displayPrices), HOUR_MS);
   } else {
-    drawChart(dayPrices, QUARTER_MS);
+    drawChart(displayPrices, QUARTER_MS);
   }
 }
 
