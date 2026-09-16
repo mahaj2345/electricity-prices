@@ -271,6 +271,15 @@ function drawChart(prices, bucketMs) {
     chartInstance.destroy();
   }
 
+  // Chart.js draws its axis titles onto the canvas itself, so CSS
+  // media queries can't touch them — check the viewport width directly
+  // instead. Matches the same 480px breakpoint already used for the
+  // button sizing in index.html's CSS, so both changes kick in
+  // together. Re-checked on every draw (drawChart always runs via
+  // renderChart), so it also adapts correctly if the window is
+  // resized or the phone is rotated between renders.
+  const isNarrowScreen = window.matchMedia("(max-width: 480px)").matches;
+
   chartInstance = new Chart(ctx, {
     type: "bar",
     data: {
@@ -318,7 +327,10 @@ function drawChart(prices, bucketMs) {
         },
         y: {
           title: {
-            display: true,
+            // Dropped on narrow screens — the rotated "Hinta (snt/kWh)"
+            // label eats into the already-tight plot width on mobile,
+            // and the tooltip still shows the unit on tap/hover anyway.
+            display: !isNarrowScreen,
             text: "Hinta (snt/kWh)",
             font: { size: 14 },
           },
@@ -374,6 +386,18 @@ document.getElementById("toggleViewBtn").addEventListener("click", () => {
   document.getElementById("toggleViewBtn").textContent =
     currentView === "hourly" ? "15 min hinnat" : "Tuntihinnat";
   renderChart();
+});
+
+// Re-render on resize/rotation so the y-axis title's visibility (see
+// isNarrowScreen in drawChart) stays correct if the viewport crosses
+// the 480px breakpoint after the initial load — e.g. rotating a phone,
+// or resizing a desktop browser window. Debounced since 'resize' fires
+// continuously while dragging, and a full chart rebuild on every
+// single pixel of that would be wasteful.
+let resizeDebounceTimer = null;
+window.addEventListener("resize", () => {
+  clearTimeout(resizeDebounceTimer);
+  resizeDebounceTimer = setTimeout(renderChart, 200);
 });
 
 setupDaySelector();
