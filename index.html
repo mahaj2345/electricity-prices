@@ -66,12 +66,18 @@
     }
     /* Shrink buttons on narrow screens so both groups have a better
        chance of fitting on one line, and look proportionate if they
-       still wrap onto two. */
+       still wrap onto two. Also reclaim the wasted body margin/padding
+       on mobile — 40px/20px on each side eats a lot of the already
+       narrow viewport width before the chart even starts. */
     @media (max-width: 480px) {
       .day-toggle button,
       .view-toggle button {
         font-size: 0.75em;
         padding: 5px 8px;
+      }
+      body {
+        margin: 10px auto;
+        padding: 5px;
       }
     }
     #noDataMessage {
